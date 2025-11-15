@@ -1,12 +1,20 @@
 import numpy as np
+from typing import Callable, Union
 from .base import BaseFeatureSelector
+from ..metrics.base import Metric
 
 
 class BackwardFeatureElimination(BaseFeatureSelector):
 
-    def __init__(self, estimator, n_features_to_select):
+    def __init__(
+        self,
+        estimator,
+        n_features_to_select: int,
+        scoring: Union[Metric, Callable]
+    ):
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
+        self.scoring = scoring
         self.selected_features_ = None
 
     def fit(self, X, y):
@@ -26,7 +34,7 @@ class BackwardFeatureElimination(BaseFeatureSelector):
 
                 self.estimator.fit(X_subset, y)
                 y_pred = self.estimator.predict(X_subset)
-                score = np.mean(y_pred == y)
+                score = self.scoring(y, y_pred)
 
                 if score < worst_score:
                     worst_score = score

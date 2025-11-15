@@ -1,12 +1,20 @@
 import numpy as np
+from typing import Callable, Union
 from .base import BaseFeatureSelector
+from ..metrics.base import Metric
 
 
 class ForwardFeatureSelection(BaseFeatureSelector):
 
-    def __init__(self, estimator, n_features_to_select):
+    def __init__(
+        self,
+        estimator,
+        n_features_to_select: int,
+        scoring: Union[Metric, Callable]
+    ):
         self.estimator = estimator
         self.n_features_to_select = n_features_to_select
+        self.scoring = scoring
         self.selected_features_ = None
 
     def fit(self, X, y):
@@ -27,7 +35,7 @@ class ForwardFeatureSelection(BaseFeatureSelector):
 
                 self.estimator.fit(X_subset, y)
                 y_pred = self.estimator.predict(X_subset)
-                score = np.mean(y_pred == y)
+                score = self.scoring(y, y_pred)
 
                 if score > best_score:
                     best_score = score
