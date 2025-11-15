@@ -1,6 +1,6 @@
 import numpy as np
 from collections import Counter
-from decision_tree import DecisionTree
+from .decision_tree import DecisionTree
 
 class DecisionTreeClassifier(DecisionTree):
     def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1):
