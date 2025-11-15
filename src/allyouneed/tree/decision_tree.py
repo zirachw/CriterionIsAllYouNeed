@@ -19,11 +19,17 @@ class DecisionTree(BaseClassifier, ABC):
         self.root = None
         self.isfitted = False
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         self.n_features = X.shape[1]
         X = np.asarray(X).astype(float)
-        y = np.asarray(y).ravel()  # pastikan 1D array, bukan Series
-        self.root = self._grow_tree(X, y)
+        y = np.asarray(y).ravel()
+
+        if sample_weight is None:
+            sample_weight = np.ones(len(y))
+        else:
+            sample_weight = np.asarray(sample_weight).ravel()
+
+        self.root = self._grow_tree(X, y, sample_weight)
         self.isfitted = True
         return self
 
@@ -34,30 +40,30 @@ class DecisionTree(BaseClassifier, ABC):
             raise ValueError("X must be a 2D array")
         return np.array([self._traverse_tree(x, self.root) for x in X])
 
-    def _grow_tree(self, X, y, depth=0):
+    def _grow_tree(self, X, y, sample_weight, depth=0):
         n_samples, n_features = X.shape
 
         # Stopping criteria
         if (self.max_depth is not None and depth >= self.max_depth) or \
            n_samples < self.min_samples_split:
-            return Node(value=self._calculate_leaf_value(y))
+            return Node(value=self._calculate_leaf_value(y, sample_weight))
 
         # Find the best split
-        best_feature, best_threshold = self._best_split(X, y)
-        
+        best_feature, best_threshold = self._best_split(X, y, sample_weight)
+
         if best_feature is None:
-            return Node(value=self._calculate_leaf_value(y))
+            return Node(value=self._calculate_leaf_value(y, sample_weight))
 
         # Create child nodes
         left_idxs = X[:, best_feature] < best_threshold
         right_idxs = ~left_idxs
-        
+
         # Check min_samples_leaf constraint
         if np.sum(left_idxs) < self.min_samples_leaf or np.sum(right_idxs) < self.min_samples_leaf:
-            return Node(value=self._calculate_leaf_value(y))
+            return Node(value=self._calculate_leaf_value(y, sample_weight))
 
-        left = self._grow_tree(X[left_idxs], y[left_idxs], depth + 1)
-        right = self._grow_tree(X[right_idxs], y[right_idxs], depth + 1)
+        left = self._grow_tree(X[left_idxs], y[left_idxs], sample_weight[left_idxs], depth + 1)
+        right = self._grow_tree(X[right_idxs], y[right_idxs], sample_weight[right_idxs], depth + 1)
 
         return Node(best_feature, best_threshold, left, right)
 
@@ -69,16 +75,16 @@ class DecisionTree(BaseClassifier, ABC):
             return self._traverse_tree(x, node.left)
         return self._traverse_tree(x, node.right)
 
-    def _best_split(self, X, y):
+    def _best_split(self, X, y, sample_weight):
         best_gain = float('-inf')
         best_feature = None
         best_threshold = None
 
         for feature in range(self.n_features):
             thresholds = np.unique(X[:, feature])
-            
+
             for threshold in thresholds:
-                gain = self._information_gain(y, X[:, feature], threshold)
+                gain = self._information_gain(y, X[:, feature], threshold, sample_weight)
 
                 if gain > best_gain:
                     best_gain = gain
@@ -88,12 +94,12 @@ class DecisionTree(BaseClassifier, ABC):
         return best_feature, best_threshold
 
     @abstractmethod
-    def _calculate_leaf_value(self, y):
+    def _calculate_leaf_value(self, y, sample_weight):
         """Calculate the predicted value for a leaf node."""
         pass
-    
+
     @abstractmethod
-    def _information_gain(self, y, X_column, threshold):
+    def _information_gain(self, y, X_column, threshold, sample_weight):
         """Calculate the information gain from a split."""
         pass
     
