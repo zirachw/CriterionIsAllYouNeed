@@ -3,8 +3,8 @@ from collections import Counter
 from .decision_tree import DecisionTree
 
 class DecisionTreeClassifier(DecisionTree):
-    def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1):
-        super().__init__(max_depth, min_samples_split, min_samples_leaf)
+    def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1, random_state=None):
+        super().__init__(max_depth, min_samples_split, min_samples_leaf, random_state)
     
     def fit(self, X, y):
         self.classes_ = np.unique(y)
