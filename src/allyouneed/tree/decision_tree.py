@@ -1,5 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
+from ..base import BaseClassifier
 
 class Node:
     def __init__(self, feature=None, threshold=None, left=None, right=None, value=None):
@@ -9,7 +10,7 @@ class Node:
         self.right = right
         self.value = value
 
-class DecisionTree(ABC):
+class DecisionTree(BaseClassifier, ABC):
     def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
