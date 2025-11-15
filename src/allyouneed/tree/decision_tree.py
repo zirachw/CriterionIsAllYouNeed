@@ -20,12 +20,15 @@ class DecisionTree(BaseClassifier, ABC):
 
     def fit(self, X, y):
         self.n_features = X.shape[1]
+        X = np.asarray(X).astype(float)
+        y = np.asarray(y).ravel()  # pastikan 1D array, bukan Series
         self.root = self._grow_tree(X, y)
         self.isfitted = True
         return self
 
     def predict(self, X):
         self._check_is_fitted()
+        X = np.asarray(X).astype(float)
         if np.ndim(X) != 2:
             raise ValueError("X must be a 2D array")
         return np.array([self._traverse_tree(x, self.root) for x in X])

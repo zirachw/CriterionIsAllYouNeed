@@ -8,6 +8,7 @@ class DecisionTreeClassifier(DecisionTree):
     
     def fit(self, X, y):
         self.classes_ = np.unique(y)
+
         super().fit(X, y)
         return self
 
