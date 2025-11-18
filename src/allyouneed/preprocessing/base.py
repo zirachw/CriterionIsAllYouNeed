@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from ..base import BaseEstimator, TransformerMixin
 
 
-class BaseEncoder(ABC):
+class BaseEncoder(BaseEstimator, TransformerMixin, ABC):
 
     @abstractmethod
     def fit(self, X):
@@ -10,6 +11,3 @@ class BaseEncoder(ABC):
     @abstractmethod
     def transform(self, X):
         pass
-
-    def fit_transform(self, X):
-        return self.fit(X).transform(X)
