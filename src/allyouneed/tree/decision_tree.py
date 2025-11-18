@@ -3,24 +3,35 @@ from abc import ABC, abstractmethod
 from ..base import BaseClassifier
 
 class Node:
-    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None):
+    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None, n_samples=0, impurity=0.0):
         self.feature = feature
         self.threshold = threshold
         self.left = left
         self.right = right
         self.value = value
+        self.n_samples = n_samples
+        self.impurity = impurity
 
 class DecisionTree(BaseClassifier, ABC):
-    def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1, random_state=None):
+    def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1, random_state=None, criterion='gini'):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.min_samples_leaf = min_samples_leaf
         self.random_state = random_state
+        self.criterion = criterion
         self.root = None
         self.isfitted = False
+        self.n_features_in_ = None
+        self._rng = None
 
     def fit(self, X, y, sample_weight=None):
+        if self.random_state is not None:
+            self._rng = np.random.RandomState(self.random_state)
+        else:
+            self._rng = np.random.RandomState()
+
         self.n_features = X.shape[1]
+        self.n_features_in_ = X.shape[1]
         X = np.asarray(X).astype(float)
         y = np.asarray(y).ravel()
 
@@ -69,11 +80,23 @@ class DecisionTree(BaseClassifier, ABC):
 
     def _traverse_tree(self, x, node):
         if node.value is not None:
+            if isinstance(node.value, dict):
+                return node.value['class']
             return node.value
 
         if x[node.feature] < node.threshold:
             return self._traverse_tree(x, node.left)
         return self._traverse_tree(x, node.right)
+
+    def _traverse_tree_proba(self, x, node):
+        if node.value is not None:
+            if isinstance(node.value, dict):
+                return node.value['proba']
+            return node.value
+
+        if x[node.feature] < node.threshold:
+            return self._traverse_tree_proba(x, node.left)
+        return self._traverse_tree_proba(x, node.right)
 
     def _best_split(self, X, y, sample_weight):
         best_gain = float('-inf')
@@ -81,7 +104,19 @@ class DecisionTree(BaseClassifier, ABC):
         best_threshold = None
 
         for feature in range(self.n_features):
-            thresholds = np.unique(X[:, feature])
+            sorted_unique = np.sort(np.unique(X[:, feature]))
+
+            if len(sorted_unique) <= 1:
+                continue
+
+            # Use midpoints between consecutive unique values
+            if len(sorted_unique) > 20:
+                # Sample thresholds for efficiency
+                quantiles = np.linspace(0, 1, 21)
+                sorted_unique = np.quantile(X[:, feature], quantiles)
+                sorted_unique = np.unique(sorted_unique)
+
+            thresholds = (sorted_unique[:-1] + sorted_unique[1:]) / 2.0
 
             for threshold in thresholds:
                 gain = self._information_gain(y, X[:, feature], threshold, sample_weight)
@@ -90,6 +125,12 @@ class DecisionTree(BaseClassifier, ABC):
                     best_gain = gain
                     best_feature = feature
                     best_threshold = threshold
+                elif gain == best_gain and self._rng is not None:
+                    # Random tie-breaking
+                    if self._rng.rand() < 0.5:
+                        best_gain = gain
+                        best_feature = feature
+                        best_threshold = threshold
 
         return best_feature, best_threshold
 
