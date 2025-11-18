@@ -61,8 +61,8 @@ class BackwardFeatureElimination(BaseFeatureSelector):
 
         while len(selected) > self.n_features_to_select:
             iteration = n_features - len(selected) + 1
-            worst_score = np.inf
-            worst_feature = None
+            best_score = -np.inf
+            least_important_feature = None
 
             if self.verbose:
                 print(f"\nIteration {iteration}/{n_features - self.n_features_to_select}")
@@ -75,9 +75,9 @@ class BackwardFeatureElimination(BaseFeatureSelector):
                     X_subset = X[:, current_features]
                     score = self._evaluate_features(X_subset, y)
 
-                    if score < worst_score:
-                        worst_score = score
-                        worst_feature = feature
+                    if score > best_score:
+                        best_score = score
+                        least_important_feature = feature
             else:
                 # Parallel execution
                 def evaluate_removal(feature):
@@ -90,15 +90,15 @@ class BackwardFeatureElimination(BaseFeatureSelector):
                     results = list(executor.map(evaluate_removal, selected))
 
                 for feature, score in results:
-                    if score < worst_score:
-                        worst_score = score
-                        worst_feature = feature
+                    if score > best_score:
+                        best_score = score
+                        least_important_feature = feature
 
-            selected.remove(worst_feature)
+            selected.remove(least_important_feature)
 
             if self.verbose:
-                feature_name = self._get_feature_name(worst_feature)
-                print(f"Removed: {feature_name} (score without it: {worst_score:.4f})")
+                feature_name = self._get_feature_name(least_important_feature)
+                print(f"Removed: {feature_name} (score without it: {best_score:.4f})")
                 remaining_names = [self._get_feature_name(f) for f in selected]
                 print(f"Remaining features ({len(selected)}): {remaining_names}")
 
