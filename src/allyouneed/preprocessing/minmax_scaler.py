@@ -1,8 +1,8 @@
 import numpy as np
-from .base import BaseEncoder
+from ..base import BaseEstimator, TransformerMixin
 
 
-class MinMaxScaler(BaseEncoder):
+class MinMaxScaler(BaseEstimator, TransformerMixin):
 
     def __init__(self, feature_range=(0, 1)):
         self.feature_range = feature_range

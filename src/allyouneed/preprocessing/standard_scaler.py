@@ -1,8 +1,8 @@
 import numpy as np
-from .base import BaseEncoder
+from ..base import BaseEstimator, TransformerMixin
 
 
-class StandardScaler(BaseEncoder):
+class StandardScaler(BaseEstimator, TransformerMixin):
 
     def __init__(self, with_mean=True, with_std=True):
         self.with_mean = with_mean
