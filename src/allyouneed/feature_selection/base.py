@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from ..base import BaseEstimator, TransformerMixin
 
 
-class BaseFeatureSelector(ABC):
+class BaseFeatureSelector(BaseEstimator, TransformerMixin, ABC):
 
     @abstractmethod
     def fit(self, X, y):
@@ -10,7 +11,3 @@ class BaseFeatureSelector(ABC):
     @abstractmethod
     def transform(self, X):
         pass
-
-    def fit_transform(self, X, y):
-        self.fit(X, y)
-        return self.transform(X)
