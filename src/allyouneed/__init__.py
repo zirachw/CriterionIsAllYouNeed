@@ -1,3 +1,3 @@
-from .base import BaseClassifier
+from .base import BaseClassifier, BaseEstimator, TransformerMixin
 
-__all__ = ['BaseClassifier']
+__all__ = ['BaseClassifier', 'BaseEstimator', 'TransformerMixin']
