@@ -5,12 +5,13 @@ from ..base import BaseClassifier
 
 class SVC(BaseClassifier):
     def __init__(self, kernel='linear', gamma=None, degree=3, coef0=0.0, C=1.0,
-                 optimizer='cvxopt', max_iter=200, tol=0.001, random_state=None):
+                 class_weight=None, optimizer='cvxopt', max_iter=200, tol=0.001, random_state=None):
         self.kernel = kernel
         self.gamma = gamma
         self.degree = degree
         self.coef0 = coef0
         self.C = C
+        self.class_weight = class_weight
         self.optimizer = optimizer
         self.max_iter = max_iter
         self.tol = tol
@@ -23,6 +24,8 @@ class SVC(BaseClassifier):
         self.coef_ = None
         self.n_features_in_ = None
         self.classes_ = None
+        self.sample_weight_ = None
+        self.C_per_sample_ = None
         self.isfitted = False
 
     def _get_kernel_fn(self):
@@ -47,6 +50,22 @@ class SVC(BaseClassifier):
 
         return K
 
+    def _compute_sample_weight(self, y):
+        if self.class_weight == 'balanced':
+            classes = np.unique(y)
+            class_counts = np.bincount(y.astype(int) if y.dtype == int else
+                                      np.searchsorted(classes, y))
+            n_samples = len(y)
+            n_classes = len(classes)
+            weights = n_samples / (n_classes * class_counts)
+            sample_weight = weights[y.astype(int) if y.dtype == int else
+                                  np.searchsorted(classes, y)]
+        elif isinstance(self.class_weight, dict):
+            sample_weight = np.array([self.class_weight.get(cls, 1.0) for cls in y])
+        else:
+            sample_weight = np.ones(len(y))
+        return sample_weight
+
     def fit(self, X, y):
         X = np.asarray(X, dtype=float)
         y = np.asarray(y).ravel()
@@ -60,6 +79,14 @@ class SVC(BaseClassifier):
         self.classes_ = np.unique(y)
         if len(self.classes_) != 2:
             raise ValueError("SVC only supports binary classification. Use MulticlassSVC for multiclass.")
+
+        # Compute sample weights from class weights
+        if self.class_weight is not None:
+            self.sample_weight_ = self._compute_sample_weight(y)
+            self.C_per_sample_ = self.C * self.sample_weight_
+        else:
+            self.sample_weight_ = np.ones(n_samples)
+            self.C_per_sample_ = np.ones(n_samples) * self.C
 
         # Convert labels to {-1, +1}
         y_binary = np.where(y == self.classes_[0], -1, 1)
@@ -90,7 +117,7 @@ class SVC(BaseClassifier):
         # max{L_D(Lambda)} can be rewritten as
         #   min{1/2 Lambda^T H Lambda - 1^T Lambda}
         #       s.t. -lambda_i <= 0
-        #       s.t. lambda_i <= C
+        #       s.t. lambda_i <= C_i (per sample)
         #       s.t. y^T Lambda = 0
         # where H[i, j] = y_i y_j K(x_i, x_j)
 
@@ -101,10 +128,10 @@ class SVC(BaseClassifier):
         P = cvxopt.matrix(np.outer(y_binary, y_binary) * K)
         q = cvxopt.matrix(-np.ones(n_samples))
 
-        # Constraint inequality: 0 <= lambda_i <= C
+        # Constraint inequality: 0 <= lambda_i <= C_i
         if self.C:
             G = cvxopt.matrix(np.vstack((-np.eye(n_samples), np.eye(n_samples))))
-            h = cvxopt.matrix(np.hstack((np.zeros(n_samples), np.ones(n_samples) * self.C)))
+            h = cvxopt.matrix(np.hstack((np.zeros(n_samples), self.C_per_sample_)))
         else:
             G = cvxopt.matrix(-np.eye(n_samples))
             h = cvxopt.matrix(np.zeros(n_samples))
@@ -121,7 +148,7 @@ class SVC(BaseClassifier):
 
         # Find support vectors (those with non-zero Lagrange multipliers)
         if self.C:
-            is_sv = (lambdas >= 1e-5) & (lambdas <= self.C)
+            is_sv = (lambdas >= 1e-5) & (lambdas <= self.C_per_sample_)
         else:
             is_sv = lambdas >= 1e-5
 
@@ -166,7 +193,7 @@ class SVC(BaseClassifier):
                 for i in range(n_samples):
                     num_changed += self._examine_example(i, X, y_binary, alphas, bias, errors, kernel_fn, n_samples)
             else:
-                for i in np.where((alphas != 0) & (alphas != self.C))[0]:
+                for i in np.where((alphas != 0) & (alphas != self.C_per_sample_))[0]:
                     num_changed += self._examine_example(i, X, y_binary, alphas, bias, errors, kernel_fn, n_samples)
 
             if examine_all:
@@ -197,10 +224,11 @@ class SVC(BaseClassifier):
         alph2 = alphas[i2]
         E2 = errors[i2]
         r2 = E2 * y2
+        C2 = self.C_per_sample_[i2]
 
         # Check KKT conditions
-        if (r2 < -self.tol and alph2 < self.C) or (r2 > self.tol and alph2 > 0):
-            non_bound_indices = np.where((alphas != 0) & (alphas != self.C))[0]
+        if (r2 < -self.tol and alph2 < C2) or (r2 > self.tol and alph2 > 0):
+            non_bound_indices = np.where((alphas != 0) & (alphas != self.C_per_sample_))[0]
 
             # Heuristic: choose max error difference
             if len(non_bound_indices) > 1:
@@ -242,14 +270,16 @@ class SVC(BaseClassifier):
         E1 = errors[i1]
         E2 = errors[i2]
         s = y1 * y2
+        C1 = self.C_per_sample_[i1]
+        C2 = self.C_per_sample_[i2]
 
         # Compute L and H bounds
         if y1 != y2:
             L = max(0, alph2 - alph1)
-            H = min(self.C, self.C + alph2 - alph1)
+            H = min(C2, C1 + alph2 - alph1)
         else:
-            L = max(0, alph1 + alph2 - self.C)
-            H = min(self.C, alph1 + alph2)
+            L = max(0, alph1 + alph2 - C1)
+            H = min(C2, alph1 + alph2)
 
         if L == H:
             return False
@@ -294,9 +324,9 @@ class SVC(BaseClassifier):
         b1 = E1 + y1 * (a1 - alph1) * k11 + y2 * (a2 - alph2) * k12 + b
         b2 = E2 + y1 * (a1 - alph1) * k12 + y2 * (a2 - alph2) * k22 + b
 
-        if 0 < a1 < self.C:
+        if 0 < a1 < C1:
             b_new = b1
-        elif 0 < a2 < self.C:
+        elif 0 < a2 < C2:
             b_new = b2
         else:
             b_new = (b1 + b2) * 0.5
@@ -307,7 +337,8 @@ class SVC(BaseClassifier):
 
         # Update errors
         for i in [i1, i2]:
-            if 0 < alphas[i] < self.C:
+            Ci = self.C_per_sample_[i]
+            if 0 < alphas[i] < Ci:
                 errors[i] = 0.0
 
         non_opt = [n for n in range(n_samples) if n != i1 and n != i2]
@@ -355,7 +386,7 @@ class SVC(BaseClassifier):
             for j in range(n_samples):
                 decision_val += alphas[j] * y_binary[i] * kernel_fn(X[i], X[j])
 
-            decision_val *= y_binary[i] / (self.C * t)
+            decision_val *= y_binary[i] / (self.C_per_sample_[i] * t)
 
             # Update alpha if margin violated
             if decision_val < 1:

@@ -4,12 +4,17 @@ from ..base import BaseClassifier
 
 
 class MulticlassSVC(BaseClassifier):
-    def __init__(self, kernel='linear', gamma=None, degree=3, coef0=0.0, C=1.0, random_state=None):
+    def __init__(self, kernel='linear', gamma=None, degree=3, coef0=0.0, C=1.0,
+                 class_weight=None, optimizer='cvxopt', max_iter=200, tol=0.001, random_state=None):
         self.kernel = kernel
         self.gamma = gamma
         self.degree = degree
         self.coef0 = coef0
         self.C = C
+        self.class_weight = class_weight
+        self.optimizer = optimizer
+        self.max_iter = max_iter
+        self.tol = tol
         self.random_state = random_state
 
         self.classes_ = None
@@ -54,6 +59,10 @@ class MulticlassSVC(BaseClassifier):
                     degree=self.degree,
                     coef0=self.coef0,
                     C=self.C,
+                    class_weight=self.class_weight,
+                    optimizer=self.optimizer,
+                    max_iter=self.max_iter,
+                    tol=self.tol,
                     random_state=self.random_state
                 )
                 svc.fit(X_pair, y_pair)
