@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from ..base import BaseClassifier
 
 class Node:
-    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None, n_samples=0, impurity=0.0):
+    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None, n_samples=0, impurity=0.0, counts=None):
         self.feature = feature
         self.threshold = threshold
         self.left = left
@@ -11,6 +11,7 @@ class Node:
         self.value = value
         self.n_samples = n_samples
         self.impurity = impurity
+        self.counts = counts
 
 class DecisionTree(BaseClassifier, ABC):
     def __init__(self, max_depth=None, min_samples_split=2, min_samples_leaf=1, random_state=None, criterion='gini'):
@@ -23,8 +24,9 @@ class DecisionTree(BaseClassifier, ABC):
         self.isfitted = False
         self.n_features_in_ = None
         self._rng = None
+        self.feature_names_in_ = None
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, feature_names=None):
         if self.random_state is not None:
             self._rng = np.random.RandomState(self.random_state)
         else:
@@ -32,6 +34,14 @@ class DecisionTree(BaseClassifier, ABC):
 
         self.n_features = X.shape[1]
         self.n_features_in_ = X.shape[1]
+        
+        if feature_names is not None:
+            self.feature_names_in_ = feature_names
+        elif hasattr(X, "columns"):
+            self.feature_names_in_ = X.columns.tolist()
+        else:
+            self.feature_names_in_ = [f"Feature {i}" for i in range(X.shape[1])]
+
         X = np.asarray(X).astype(float)
         y = np.asarray(y).ravel()
 
@@ -54,16 +64,29 @@ class DecisionTree(BaseClassifier, ABC):
     def _grow_tree(self, X, y, sample_weight, depth=0):
         n_samples, n_features = X.shape
 
+        current_impurity = 0.0
+        if hasattr(self, '_gini') and self.criterion == 'gini':
+             current_impurity = self._gini(y, sample_weight)
+        elif hasattr(self, '_entropy') and self.criterion == 'entropy':
+             current_impurity = self._entropy(y, sample_weight)
+
+        unique_classes = np.unique(y)
+        node_counts = {}
+        for cls in unique_classes:
+            node_counts[cls] = np.sum(sample_weight[y == cls])
+
         # Stopping criteria
         if (self.max_depth is not None and depth >= self.max_depth) or \
            n_samples < self.min_samples_split:
-            return Node(value=self._calculate_leaf_value(y, sample_weight))
+            return Node(value=self._calculate_leaf_value(y, sample_weight), 
+                        n_samples=n_samples, impurity=current_impurity, counts=node_counts)
 
         # Find the best split
         best_feature, best_threshold = self._best_split(X, y, sample_weight)
 
         if best_feature is None:
-            return Node(value=self._calculate_leaf_value(y, sample_weight))
+            return Node(value=self._calculate_leaf_value(y, sample_weight), 
+                        n_samples=n_samples, impurity=current_impurity, counts=node_counts)
 
         # Create child nodes
         left_idxs = X[:, best_feature] < best_threshold
@@ -71,12 +94,14 @@ class DecisionTree(BaseClassifier, ABC):
 
         # Check min_samples_leaf constraint
         if np.sum(left_idxs) < self.min_samples_leaf or np.sum(right_idxs) < self.min_samples_leaf:
-            return Node(value=self._calculate_leaf_value(y, sample_weight))
+            return Node(value=self._calculate_leaf_value(y, sample_weight), 
+                        n_samples=n_samples, impurity=current_impurity, counts=node_counts)
 
         left = self._grow_tree(X[left_idxs], y[left_idxs], sample_weight[left_idxs], depth + 1)
         right = self._grow_tree(X[right_idxs], y[right_idxs], sample_weight[right_idxs], depth + 1)
 
-        return Node(best_feature, best_threshold, left, right)
+        return Node(feature=best_feature, threshold=best_threshold, left=left, right=right, 
+                    value=None, n_samples=n_samples, impurity=current_impurity, counts=node_counts)
 
     def _traverse_tree(self, x, node):
         if node.value is not None:
