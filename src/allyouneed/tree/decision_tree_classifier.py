@@ -125,13 +125,14 @@ class DecisionTreeClassifier(DecisionTree):
 
         max_tree_depth = self._get_depth(self.root)
 
+        if top_n is not None and top_n < 0:
+            print(f"Parameter top_n bernilai negatif: {top_n}. Visualisasi dibatalkan.")
+            return
+
         if top_n is None:
             visual_depth = max_tree_depth
-        elif top_n < 0:
-            raise ValueError(f"Parameter top_n tidak boleh negatif. Nilai yang diterima: {top_n}")
-        elif top_n == 0:
-            visual_depth = 0
         elif top_n > max_tree_depth:
+            print(f"Parameter top_n ({top_n}) melebihi kedalaman maksimum pohon ({max_tree_depth}). Menampilkan seluruh pohon.")
             visual_depth = max_tree_depth
         else:
             visual_depth = top_n
