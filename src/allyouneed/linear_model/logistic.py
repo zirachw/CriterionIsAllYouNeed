@@ -33,6 +33,7 @@ class LogisticRegression(BaseClassifier):
         self._classes = None
         self._W = None
         self._isfitted = False
+        self.history = []
         
     def _logistic_function(self, z):
         z = np.clip(z, -500, 500)
@@ -60,6 +61,7 @@ class LogisticRegression(BaseClassifier):
     def _stochastic_gradient_ascent(self, X, y):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]
         
         for _ in range(self.max_iter):
             indices = self._rng.permutation(n_samples)
@@ -72,6 +74,7 @@ class LogisticRegression(BaseClassifier):
                 error = (y_batch - p) 
                 gradient = X_batch.T @ (error / len(y_batch))
                 w += self.learning_rate * gradient
+                self.history.append(w.copy())
 
             # cek semuanya
             p_full = self._logistic_function(X @ w)
@@ -85,6 +88,7 @@ class LogisticRegression(BaseClassifier):
     def _batch_gradient_ascent(self, X, y):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]
 
         for _ in range(self.max_iter):
             p = self._logistic_function(X @ w)
@@ -92,6 +96,7 @@ class LogisticRegression(BaseClassifier):
             gradient = X.T @ (error / n_samples)
             
             w += self.learning_rate * gradient
+            self.history.append(w.copy())
             
             if np.linalg.norm(gradient) < self.tol:
                 break
@@ -101,6 +106,7 @@ class LogisticRegression(BaseClassifier):
     def _mini_batch_gradient_descent(self, X, y):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]
 
         for _ in range(self.max_iter):
             indices = self._rng.permutation(n_samples)
@@ -115,6 +121,7 @@ class LogisticRegression(BaseClassifier):
                 gradient = Xb.T @ (error / len(yb))
 
                 w -= self.learning_rate * gradient  # descent
+                self.history.append(w.copy())
 
             # cek konvergensi full batch
             p_full = self._logistic_function(X @ w)
