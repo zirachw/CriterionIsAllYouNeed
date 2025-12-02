@@ -1,5 +1,6 @@
 import numpy as np
 from ..base import BaseClassifier
+from scipy.optimize import minimize
 
 
 class LogisticRegression(BaseClassifier):
@@ -7,6 +8,7 @@ class LogisticRegression(BaseClassifier):
         "sga": "_stochastic_gradient_ascent",
         "bga": "_batch_gradient_ascent",
         "mgd": "_mini_batch_gradient_descent",
+        "newton-cg": "_solve_newton_cg",
     }
     
     def __init__(
@@ -18,6 +20,7 @@ class LogisticRegression(BaseClassifier):
         random_state=None,
         tol=1e-4,
         class_weight=None,
+        C=1.0,
     ):
         self.max_iter = max_iter
         self.learning_rate = learning_rate
@@ -30,6 +33,7 @@ class LogisticRegression(BaseClassifier):
         self._rng = np.random.RandomState(random_state) if random_state is not None else np.random
         self.tol = tol
         self.class_weight = class_weight
+        self.C = C
 
         self._classes = None
         self._W = None
@@ -99,6 +103,54 @@ class LogisticRegression(BaseClassifier):
                 break
 
         return w
+    
+    def _loss_and_grad_newton(self, w, X, y, sample_weight, alpha):
+        z = X @ w
+        p = self._logistic_function(z)
+        
+        eps = 1e-15
+        p = np.clip(p, eps, 1 - eps)
+        
+        data_loss = -np.sum(sample_weight * (y * np.log(p) + (1 - y) * np.log(1 - p)))
+        reg_loss = 0.5 * alpha * np.dot(w, w)
+        loss = data_loss + reg_loss
+        error = (p - y) * sample_weight
+        grad = X.T @ error + alpha * w
+        
+        return loss, grad
+
+    def _hessian_newton(self, w, X, y, sample_weight, alpha):
+        z = X @ w
+        p = self._logistic_function(z)
+        
+        S = p * (1 - p) * sample_weight
+        
+        H = X.T @ (X * S[:, np.newaxis])
+        
+        np.fill_diagonal(H, H.diagonal() + alpha)
+        
+        return H
+
+    def _solve_newton_cg(self, X, y, sample_weight=None):
+        n_features = X.shape[1]
+        w_init = np.zeros(n_features)
+        
+        alpha = 1.0 / self.C if self.C > 0 else 1e-4 
+
+        if sample_weight is None:
+            sample_weight = np.ones(X.shape[0])
+
+        opt_res = minimize(
+            self._loss_and_grad_newton,
+            w_init,
+            args=(X, y, sample_weight, alpha),
+            method='Newton-CG',
+            jac=True,
+            hess=self._hessian_newton,
+            options={'maxiter': self.max_iter, 'xtol': self.tol}
+        )
+        
+        return opt_res.x
     
     def _batch_gradient_ascent(self, X, y, sample_weight=None):
         n_samples, n_features = X.shape
