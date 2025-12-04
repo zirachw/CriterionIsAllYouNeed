@@ -37,6 +37,7 @@ class LogisticRegression(BaseClassifier):
         self._classes = None
         self._W = None
         self._isfitted = False
+        self.history = []  # Added history tracking
         
     def _logistic_function(self, z):
         z = np.clip(z, -500, 500)
@@ -77,6 +78,7 @@ class LogisticRegression(BaseClassifier):
     def _stochastic_gradient_ascent(self, X, y, sample_weight=None):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]  # Initialize history
 
         if sample_weight is None:
             sample_weight = np.ones(n_samples)
@@ -93,6 +95,7 @@ class LogisticRegression(BaseClassifier):
                 error = (y_batch - p) * w_batch
                 gradient = X_batch.T @ error / w_batch.sum()
                 w += self.learning_rate * gradient
+                self.history.append(w.copy())  # Track each update
 
             # cek semuanya
             p_full = self._logistic_function(X @ w)
@@ -138,6 +141,7 @@ class LogisticRegression(BaseClassifier):
     def _solve_newton_cg(self, X, y, sample_weight=None):
         n_features = X.shape[1]
         w = np.zeros(n_features)
+        self.history = [w.copy()]  # Initialize history
         
         alpha = 1.0 / self.C if self.C > 0 else 1e-4
 
@@ -157,6 +161,7 @@ class LogisticRegression(BaseClassifier):
             step_size = self._line_search(w, delta, X, y, sample_weight, alpha)
             
             w = w + step_size * delta
+            self.history.append(w.copy())  # Track each iteration
 
         return w
     
@@ -212,6 +217,7 @@ class LogisticRegression(BaseClassifier):
     def _batch_gradient_ascent(self, X, y, sample_weight=None):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]  # Initialize history
 
         if sample_weight is None:
             sample_weight = np.ones(n_samples)
@@ -222,6 +228,7 @@ class LogisticRegression(BaseClassifier):
             gradient = X.T @ error / sample_weight.sum()
 
             w += self.learning_rate * gradient
+            self.history.append(w.copy())  # Track each iteration
 
             if np.linalg.norm(gradient) < self.tol:
                 break
@@ -231,6 +238,7 @@ class LogisticRegression(BaseClassifier):
     def _mini_batch_gradient_descent(self, X, y, sample_weight=None):
         n_samples, n_features = X.shape
         w = np.zeros(n_features)
+        self.history = [w.copy()]  # Initialize history
 
         if sample_weight is None:
             sample_weight = np.ones(n_samples)
@@ -249,6 +257,7 @@ class LogisticRegression(BaseClassifier):
                 gradient = Xb.T @ error / wb.sum()
 
                 w -= self.learning_rate * gradient  # descent
+                self.history.append(w.copy())  # Track each update
 
             # cek konvergensi full batch
             p_full = self._logistic_function(X @ w)
