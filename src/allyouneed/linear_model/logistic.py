@@ -1,6 +1,5 @@
 import numpy as np
 from ..base import BaseClassifier
-from scipy.optimize import minimize
 
 
 class LogisticRegression(BaseClassifier):
@@ -104,7 +103,7 @@ class LogisticRegression(BaseClassifier):
 
         return w
     
-    def _loss_and_grad_newton(self, w, X, y, sample_weight, alpha):
+    def _compute_loss(self, w, X, y, sample_weight, alpha):
         z = X @ w
         p = self._logistic_function(z)
         
@@ -114,43 +113,101 @@ class LogisticRegression(BaseClassifier):
         data_loss = -np.sum(sample_weight * (y * np.log(p) + (1 - y) * np.log(1 - p)))
         reg_loss = 0.5 * alpha * np.dot(w, w)
         loss = data_loss + reg_loss
+        
+        return loss
+
+    def _compute_gradient(self, w, X, y, sample_weight, alpha):
+        z = X @ w
+        p = self._logistic_function(z)
+        
         error = (p - y) * sample_weight
         grad = X.T @ error + alpha * w
         
-        return loss, grad
+        return grad
 
-    def _hessian_newton(self, w, X, y, sample_weight, alpha):
+    def _compute_hessian(self, w, X, y, sample_weight, alpha):
         z = X @ w
         p = self._logistic_function(z)
         
         S = p * (1 - p) * sample_weight
-        
         H = X.T @ (X * S[:, np.newaxis])
-        
         np.fill_diagonal(H, H.diagonal() + alpha)
         
         return H
 
     def _solve_newton_cg(self, X, y, sample_weight=None):
         n_features = X.shape[1]
-        w_init = np.zeros(n_features)
+        w = np.zeros(n_features)
         
-        alpha = 1.0 / self.C if self.C > 0 else 1e-4 
+        alpha = 1.0 / self.C if self.C > 0 else 1e-4
 
         if sample_weight is None:
             sample_weight = np.ones(X.shape[0])
 
-        opt_res = minimize(
-            self._loss_and_grad_newton,
-            w_init,
-            args=(X, y, sample_weight, alpha),
-            method='Newton-CG',
-            jac=True,
-            hess=self._hessian_newton,
-            options={'maxiter': self.max_iter, 'xtol': self.tol}
-        )
+        for iteration in range(self.max_iter):
+            grad = self._compute_gradient(w, X, y, sample_weight, alpha)
+            
+            if np.linalg.norm(grad) < self.tol:
+                break
+            
+            H = self._compute_hessian(w, X, y, sample_weight, alpha)
+            
+            delta = self._conjugate_gradient(H, -grad, tol=1e-5, max_iter=min(n_features, 20))
+            
+            step_size = self._line_search(w, delta, X, y, sample_weight, alpha)
+            
+            w = w + step_size * delta
+
+        return w
+    
+    def _conjugate_gradient(self, A, b, tol=1e-5, max_iter=None):
+        n = len(b)
+        if max_iter is None:
+            max_iter = n
         
-        return opt_res.x
+        x = np.zeros(n)
+        r = b.copy()
+        p = r.copy()
+        rs_old = np.dot(r, r)
+        
+        for _ in range(max_iter):
+            if np.sqrt(rs_old) < tol:
+                break
+            
+            Ap = A @ p
+            alpha = rs_old / np.dot(p, Ap)
+            x = x + alpha * p
+            r = r - alpha * Ap
+            rs_new = np.dot(r, r)
+            
+            if np.sqrt(rs_new) < tol:
+                break
+            
+            beta = rs_new / rs_old
+            p = r + beta * p
+            rs_old = rs_new
+        
+        return x
+    
+    def _line_search(self, w, direction, X, y, sample_weight, alpha, max_steps=10):
+        step_size = 1.0
+        c = 0.5
+        rho = 0.8
+        
+        current_loss = self._compute_loss(w, X, y, sample_weight, alpha)
+        grad = self._compute_gradient(w, X, y, sample_weight, alpha)
+        expected_decrease = c * np.dot(grad, direction)
+        
+        for _ in range(max_steps):
+            new_w = w + step_size * direction
+            new_loss = self._compute_loss(new_w, X, y, sample_weight, alpha)
+            
+            if new_loss <= current_loss + step_size * expected_decrease:
+                break
+            
+            step_size *= rho
+        
+        return step_size
     
     def _batch_gradient_ascent(self, X, y, sample_weight=None):
         n_samples, n_features = X.shape
