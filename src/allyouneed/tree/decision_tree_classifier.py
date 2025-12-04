@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from .decision_tree import DecisionTree, Node
 
 class DecisionTreeClassifier(DecisionTree):
@@ -8,7 +9,7 @@ class DecisionTreeClassifier(DecisionTree):
         self.class_weight = class_weight
         self.n_classes_ = None
 
-    def fit(self, X, y):
+    def fit(self, X, y, feature_names=None):
         self.classes_ = np.unique(y)
         self.n_classes_ = len(self.classes_)
 
@@ -18,7 +19,7 @@ class DecisionTreeClassifier(DecisionTree):
         else:
             sample_weight = None
 
-        super().fit(X, y, sample_weight=sample_weight)
+        super().fit(X, y, sample_weight=sample_weight, feature_names=feature_names)
         return self
 
     def _compute_sample_weight(self, y):
@@ -117,3 +118,90 @@ class DecisionTreeClassifier(DecisionTree):
                 entropy -= p * np.log2(p)
 
         return entropy
+
+    def visualize_tree(self, filename="tree_visualization.png", top_n=None):
+        if self.root is None:
+            return
+
+        max_tree_depth = self._get_depth(self.root)
+
+        if top_n is not None and top_n < 0:
+            print(f"Parameter top_n bernilai negatif: {top_n}. Visualisasi dibatalkan.")
+            return
+
+        if top_n is None:
+            visual_depth = max_tree_depth
+        elif top_n > max_tree_depth:
+            print(f"Parameter top_n ({top_n}) melebihi kedalaman maksimum pohon ({max_tree_depth}). Menampilkan seluruh pohon.")
+            visual_depth = max_tree_depth
+        else:
+            visual_depth = top_n
+
+        fig, ax = plt.subplots(figsize=(16, 10))
+        ax.set_axis_off()
+        
+        self._plot_node(ax, self.root, x=0.5, y=1.0, dx=0.5, dy=1.0/(visual_depth+1), 
+                        depth=0, max_depth=visual_depth)
+        
+        plt.tight_layout()
+        plt.savefig(filename, dpi=300)
+        plt.close()
+
+    def _plot_node(self, ax, node, x, y, dx, dy, depth, max_depth):
+        if node is None:
+            return
+
+        val_str = "N/A"
+        if node.counts:
+            counts_list = [node.counts.get(c, 0) for c in self.classes_]
+            val_str = str([int(v) if isinstance(v, (int, np.integer)) else float(f"{v:.1f}") for v in counts_list])
+
+        content = f"{self.criterion} = {node.impurity:.3f}\n"
+        content += f"samples = {node.n_samples}\n"
+        content += f"value = {val_str}\n"
+
+        if node.value is not None and (node.left is None and node.right is None):
+            if isinstance(node.value, dict):
+                 content += f"class = {node.value['class']}"
+            else:
+                 content += f"class = {node.value}"
+            
+            bbox_props = dict(boxstyle="round,pad=0.5", fc="#e5f5e0", ec="black", alpha=0.9)
+            text = content
+        else:
+            if isinstance(node.value, dict):
+                 content += f"class = {node.value['class']}"
+            elif node.value is not None:
+                 content += f"class = {node.value}"
+            
+            feature_name = self.feature_names_in_[node.feature] if self.feature_names_in_ else f"Feat {node.feature}"
+            header = f"{feature_name} < {node.threshold:.2f}\n"
+            text = header + content
+            bbox_props = dict(boxstyle="round,pad=0.5", fc="#e0f7fa", ec="black", alpha=0.9)
+
+        ax.text(x, y, text, ha="center", va="center", bbox=bbox_props, fontsize=8, family='monospace')
+
+        if (node.left is None and node.right is None) or depth >= max_depth:
+            return
+
+        y_next = y - dy
+        x_left = x - (dx / 2)
+        x_right = x + (dx / 2)
+
+        ax.plot([x, x_left], [y, y_next], 'k-', lw=1, zorder=-1)
+        ax.plot([x, x_right], [y, y_next], 'k-', lw=1, zorder=-1)
+
+        mid_y = (y + y_next) / 2
+        mid_x_left = (x + x_left) / 2
+        mid_x_right = (x + x_right) / 2
+        
+        ax.text(mid_x_left, mid_y, "True", ha="right", va="center", fontsize=7, color="blue", weight='bold')
+        ax.text(mid_x_right, mid_y, "False", ha="left", va="center", fontsize=7, color="red", weight='bold')
+
+        self._plot_node(ax, node.left, x_left, y_next, dx/2, dy, depth + 1, max_depth)
+        self._plot_node(ax, node.right, x_right, y_next, dx/2, dy, depth + 1, max_depth)
+
+    def _get_depth(self, node):
+        if node is None or (node.left is None and node.right is None):
+            return 0
+        return 1 + max(self._get_depth(node.left), self._get_depth(node.right))
