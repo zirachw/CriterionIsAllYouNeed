@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from ..base import BaseClassifier
 
 
@@ -37,7 +39,7 @@ class LogisticRegression(BaseClassifier):
         self._classes = None
         self._W = None
         self._isfitted = False
-        self.history = []  # Added history tracking
+        self.history = []
         
     def _logistic_function(self, z):
         z = np.clip(z, -500, 500)
@@ -272,7 +274,7 @@ class LogisticRegression(BaseClassifier):
     def fit(self, X, y):
         X, y = self._validate_input(X, y)
         self._classes = np.unique(y)
-        X = self._add_bias(X)
+        X_bias = self._add_bias(X)
 
         if self.class_weight is not None:
             sample_weight = self._compute_sample_weight(y)
@@ -281,16 +283,21 @@ class LogisticRegression(BaseClassifier):
 
         if self._classes.size > 2:
             W_all = []
+            history_all = []
             for cls in self._classes:
                 y_binary = (y == cls).astype(int)
-                w = self.solver_fn(X, y_binary, sample_weight)
+                w = self.solver_fn(X_bias, y_binary, sample_weight)
                 W_all.append(w)
+                history_all.append(self.history.copy() if self.history else [])
             self._W = np.vstack(W_all)
+            self._training_data = (X_bias, y)
+            self._class_histories = history_all
 
         else:
             positive_class = self._classes[-1]
             y_binary = (y == positive_class).astype(int)
-            self._W = self.solver_fn(X, y_binary, sample_weight)
+            self._W = self.solver_fn(X_bias, y_binary, sample_weight)
+            self._training_data = (X_bias, y_binary)
 
         self._isfitted = True
         return self
@@ -312,3 +319,205 @@ class LogisticRegression(BaseClassifier):
         probs = self.predict_proba(X)
         y_pred = np.argmax(probs, axis=1)
         return self._classes[y_pred]
+    
+    def _compute_metric(self, w, X, y, mode="loss"):
+        z = np.dot(X, w)
+        z = np.clip(z, -500, 500)
+        p = 1 / (1 + np.exp(-z))
+        p = np.clip(p, 1e-15, 1 - 1e-15)
+        
+        ll = np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
+        
+        if mode == "loss":
+            return -ll
+        return ll
+    
+    def visualize_training(self, save_path=None, class_idx=None):
+        if not self._isfitted:
+            raise ValueError("Model must be fitted before visualization.")
+        
+        X_train, y_train = self._training_data
+        
+        if self._classes.size > 2:
+            if not hasattr(self, '_class_histories'):
+                raise ValueError("No training history available for multiclass model.")
+            return self._visualize_multiclass(X_train, y_train, save_path, class_idx)
+        else:
+            if not self.history:
+                raise ValueError("No training history available. Train the model first.")
+            return self._visualize_binary(X_train, y_train, save_path)
+    
+    def _visualize_binary(self, X_train, y_train, save_path=None):
+        configs = {
+            "mgd": {
+                "mode": "loss",
+                "title": "Loss Landscape (Gradient Descent)",
+                "cmap": "viridis" 
+            },
+            "sga": {
+                "mode": "likelihood",
+                "title": "Likelihood Landscape (Gradient Ascent)",
+                "cmap": "viridis"
+            },
+            "bga": {
+                "mode": "likelihood",
+                "title": "Likelihood Landscape (Gradient Ascent)",
+                "cmap": "viridis"
+            },
+            "newton-cg": {
+                "mode": "loss",
+                "title": "Loss Landscape (Newton-CG)",
+                "cmap": "viridis"
+            }
+        }
+        
+        config = configs.get(self.solver_name, configs["mgd"])
+        mode = config["mode"]
+        
+        history = np.array(self.history)
+        final_w = history[-1]
+        w0_h, w1_h = history[:, 0], history[:, 1]
+
+        span_w0 = np.ptp(w0_h)
+        span_w1 = np.ptp(w1_h)
+        pad = 0.5 if span_w0 > 0.1 else 1.0
+
+        w0_vals = np.linspace(np.min(w0_h)-span_w0*pad, np.max(w0_h)+span_w0*pad, 50)
+        w1_vals = np.linspace(np.min(w1_h)-span_w1*pad, np.max(w1_h)+span_w1*pad, 50)
+        W0, W1 = np.meshgrid(w0_vals, w1_vals)
+
+        Z = np.zeros_like(W0)
+        for i in range(W0.shape[0]):
+            for j in range(W0.shape[1]):
+                w_tmp = final_w.copy()
+                w_tmp[0], w_tmp[1] = W0[i, j], W1[i, j]
+                Z[i, j] = self._compute_metric(w_tmp, X_train, y_train, mode=mode)
+
+        fig, ax = plt.subplots(figsize=(9, 6))
+        CS = ax.contourf(W0, W1, Z, 50, cmap=config['cmap'])
+        cbar = plt.colorbar(CS)
+        cbar.set_label(f"{mode.capitalize()} Value")
+
+        line, = ax.plot([], [], 'r-', lw=2, label='Path')
+        point, = ax.plot([], [], 'ro', markersize=8, markeredgecolor='white')
+
+        ax.plot(w0_h[0], w1_h[0], 'bx', markersize=10, markeredgewidth=2, label='Start')
+        ax.plot(w0_h[-1], w1_h[-1], 'w*', markersize=12, markeredgecolor='black', label='End')
+
+        ax.set_title(config['title'])
+        ax.set_xlabel(r'$\theta_0$ (Bias)')
+        ax.set_ylabel(r'$\theta_1$ (Feature 1)')
+        ax.legend(loc='lower right')
+
+        def update(frame):
+            line.set_data(w0_h[:frame+1], w1_h[:frame+1])
+            point.set_data([w0_h[frame]], [w1_h[frame]])
+            return line, point
+
+        ani = FuncAnimation(fig, update, frames=len(history), blit=True, interval=50)
+        
+        if save_path:
+            ani.save(save_path, writer='ffmpeg', fps=30)
+        
+        plt.show()
+        return ani
+    
+    def _visualize_multiclass(self, X_train, y_train, save_path=None, class_idx=None):
+        configs = {
+            "mgd": {"mode": "loss", "title": "Loss Landscape (Gradient Descent)", "cmap": "viridis"},
+            "sga": {"mode": "likelihood", "title": "Likelihood Landscape (Gradient Ascent)", "cmap": "viridis"},
+            "bga": {"mode": "likelihood", "title": "Likelihood Landscape (Gradient Ascent)", "cmap": "viridis"},
+            "newton-cg": {"mode": "loss", "title": "Loss Landscape (Newton-CG)", "cmap": "viridis"}
+        }
+        config = configs.get(self.solver_name, configs["mgd"])
+        mode = config["mode"]
+        
+        if class_idx is not None:
+            classes_to_plot = [class_idx]
+        else:
+            classes_to_plot = range(len(self._classes))
+        
+        n_classes = len(classes_to_plot)
+        n_cols = min(3, n_classes)
+        n_rows = (n_classes + n_cols - 1) // n_cols
+        
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(9 * n_cols, 6 * n_rows))
+        if n_classes == 1:
+            axes = [axes]
+        else:
+            axes = axes.flatten() if n_classes > 1 else [axes]
+        
+        animations = []
+        
+        for idx, cls_idx in enumerate(classes_to_plot):
+            ax = axes[idx]
+            history = np.array(self._class_histories[cls_idx])
+            
+            if len(history) == 0:
+                ax.text(0.5, 0.5, f'No history for Class {self._classes[cls_idx]}',
+                       ha='center', va='center', transform=ax.transAxes)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            
+            y_binary = (y_train == self._classes[cls_idx]).astype(int)
+            final_w = history[-1]
+            w0_h, w1_h = history[:, 0], history[:, 1]
+            
+            span_w0 = np.ptp(w0_h)
+            span_w1 = np.ptp(w1_h)
+            pad = 0.5 if span_w0 > 0.1 else 1.0
+            
+            w0_vals = np.linspace(np.min(w0_h)-span_w0*pad, np.max(w0_h)+span_w0*pad, 50)
+            w1_vals = np.linspace(np.min(w1_h)-span_w1*pad, np.max(w1_h)+span_w1*pad, 50)
+            W0, W1 = np.meshgrid(w0_vals, w1_vals)
+            
+            Z = np.zeros_like(W0)
+            for i in range(W0.shape[0]):
+                for j in range(W0.shape[1]):
+                    w_tmp = final_w.copy()
+                    w_tmp[0], w_tmp[1] = W0[i, j], W1[i, j]
+                    Z[i, j] = self._compute_metric(w_tmp, X_train, y_binary, mode=mode)
+            
+            CS = ax.contourf(W0, W1, Z, 50, cmap=config['cmap'])
+            cbar = plt.colorbar(CS, ax=ax)
+            cbar.set_label(f"{mode.capitalize()} Value")
+            
+            line, = ax.plot([], [], 'r-', lw=2, label='Path')
+            point, = ax.plot([], [], 'ro', markersize=8, markeredgecolor='white')
+            
+            ax.plot(w0_h[0], w1_h[0], 'bx', markersize=10, markeredgewidth=2, label='Start')
+            ax.plot(w0_h[-1], w1_h[-1], 'w*', markersize=12, markeredgecolor='black', label='End')
+            
+            ax.set_title(f"Class {self._classes[cls_idx]}: {config['title']}")
+            ax.set_xlabel(r'$\theta_0$ (Bias)')
+            ax.set_ylabel(r'$\theta_1$ (Feature 1)')
+            ax.legend(loc='lower right')
+            
+            animations.append((line, point, w0_h, w1_h))
+        
+        for i in range(n_classes, len(axes)):
+            axes[i].set_visible(False)
+        
+        def update(frame):
+            artists = []
+            for line, point, w0_h, w1_h in animations:
+                if frame < len(w0_h):
+                    line.set_data(w0_h[:frame+1], w1_h[:frame+1])
+                    point.set_data([w0_h[frame]], [w1_h[frame]])
+                else:
+                    line.set_data(w0_h, w1_h)
+                    point.set_data([w0_h[-1]], [w1_h[-1]])
+                artists.extend([line, point])
+            return artists
+        
+        max_frames = max(len(hist) for hist in [self._class_histories[i] for i in classes_to_plot] if len(hist) > 0)
+        ani = FuncAnimation(fig, update, frames=max_frames, blit=True, interval=50)
+        
+        plt.tight_layout()
+        
+        if save_path:
+            ani.save(save_path, writer='ffmpeg', fps=30)
+        
+        plt.show()
+        return ani
